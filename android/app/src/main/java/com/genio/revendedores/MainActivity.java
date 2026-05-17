@@ -11,6 +11,7 @@ import android.util.Base64;
 import android.webkit.CookieManager;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -60,7 +61,25 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
+        // Interceptar URLs - AMBAS versiones para compatibilidad
         webView.setWebViewClient(new WebViewClient() {
+            // Version NUEVA (Android 7+)
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                String url = request.getUrl().toString();
+
+                if (url.equals("genio://download-pdf")) {
+                    downloadPdfFromPage();
+                    return true;
+                }
+                if (url.contains("wa.me") || url.contains("whatsapp.com")) {
+                    openWhatsApp(url);
+                    return true;
+                }
+                return false;
+            }
+
+            // Version VIEJA (Android viejo)
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 if (url.equals("genio://download-pdf")) {
