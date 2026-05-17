@@ -5,7 +5,6 @@ import android.app.DownloadManager;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Base64;
@@ -61,7 +60,7 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        webView.addJavascriptInterface(new PDFBridge(), "GenioPDF");
+        webView.addJavascriptInterface(new GenioPDFBridge(), "GenioPDF");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -88,46 +87,12 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 swipeRefresh.setRefreshing(false);
-                injectPDFHook();
             }
         });
 
         webView.setWebChromeClient(new WebChromeClient());
         swipeRefresh.setOnRefreshListener(() -> webView.reload());
         webView.loadUrl(SITE_URL);
-    }
-
-    // FIXED: Retry every 1 second for up to 30 seconds until jsPDF is loaded
-    private void injectPDFHook() {
-        String js =
-            "(function() {" +
-            "  var attempts = 0;" +
-            "  var maxAttempts = 30;" +
-            "  function tryHook() {" +
-            "    attempts++;" +
-            "    if (window.jsPDF && !window._pdfHooked) {" +
-            "      window._pdfHooked = true;" +
-            "      var origSave = window.jsPDF.prototype.save;" +
-            "      window.jsPDF.prototype.save = function(filename) {" +
-            "        try {" +
-            "          var dataUrl = this.output('datauristring');" +
-            "          if (window.GenioPDF && window.GenioPDF.download) {" +
-            "            window.GenioPDF.download(dataUrl, filename || 'pedido.pdf');" +
-            "            return;" +
-            "          }" +
-            "        } catch(e) {}" +
-            "        origSave.apply(this, arguments);" +
-            "      };" +
-            "      console.log('GenioPDF: Hook installed');" +
-            "      return;" +
-            "    }" +
-            "    if (attempts < maxAttempts) {" +
-            "      setTimeout(tryHook, 1000);" +
-            "    }" +
-            "  }" +
-            "  tryHook();" +
-            "})();";
-        webView.evaluateJavascript(js, null);
     }
 
     @Override
@@ -139,12 +104,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public class PDFBridge {
+    public class GenioPDFBridge {
         @JavascriptInterface
         public void download(String dataUrl, String filename) {
             try {
-                String base64Part = dataUrl.substring(dataUrl.indexOf(",") + 1);
-                byte[] pdfBytes = Base64.decode(base64Part, Base64.DEFAULT);
+                String base64 = dataUrl.substring(dataUrl.indexOf(",") + 1);
+                byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
 
                 File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
                 if (!downloadsDir.exists()) downloadsDir.mkdirs();
@@ -162,11 +127,14 @@ public class MainActivity extends AppCompatActivity {
                         true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
 
                 runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this,
+                            "PDF guardado en Descargas: " + finalName, Toast.LENGTH_LONG).show();
                 });
+
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this,
+                            "Error al guardar: " + e.getMessage(), Toast.LENGTH_LONG).show();
                 });
             }
         }
