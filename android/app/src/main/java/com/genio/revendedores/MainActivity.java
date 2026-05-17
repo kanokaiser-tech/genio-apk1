@@ -37,7 +37,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // Request permissions
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this,
@@ -62,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        // Add JavaScript bridge for PDF
         webView.addJavascriptInterface(new PDFBridge(), "GenioPDF");
 
         webView.setWebViewClient(new WebViewClient() {
@@ -99,23 +97,35 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
+    // FIXED: Retry every 1 second for up to 30 seconds until jsPDF is loaded
     private void injectPDFHook() {
         String js =
             "(function() {" +
-            "  if (window.jsPDF && !window._pdfHooked) {" +
-            "    window._pdfHooked = true;" +
-            "    var origSave = window.jsPDF.prototype.save;" +
-            "    window.jsPDF.prototype.save = function(filename) {" +
-            "      try {" +
-            "        var dataUrl = this.output('datauristring');" +
-            "        if (window.GenioPDF && window.GenioPDF.download) {" +
-            "          window.GenioPDF.download(dataUrl, filename || 'pedido.pdf');" +
-            "          return;" +
-            "        }" +
-            "      } catch(e) {}" +
-            "      origSave.apply(this, arguments);" +
-            "    };" +
+            "  var attempts = 0;" +
+            "  var maxAttempts = 30;" +
+            "  function tryHook() {" +
+            "    attempts++;" +
+            "    if (window.jsPDF && !window._pdfHooked) {" +
+            "      window._pdfHooked = true;" +
+            "      var origSave = window.jsPDF.prototype.save;" +
+            "      window.jsPDF.prototype.save = function(filename) {" +
+            "        try {" +
+            "          var dataUrl = this.output('datauristring');" +
+            "          if (window.GenioPDF && window.GenioPDF.download) {" +
+            "            window.GenioPDF.download(dataUrl, filename || 'pedido.pdf');" +
+            "            return;" +
+            "          }" +
+            "        } catch(e) {}" +
+            "        origSave.apply(this, arguments);" +
+            "      };" +
+            "      console.log('GenioPDF: Hook installed');" +
+            "      return;" +
+            "    }" +
+            "    if (attempts < maxAttempts) {" +
+            "      setTimeout(tryHook, 1000);" +
+            "    }" +
             "  }" +
+            "  tryHook();" +
             "})();";
         webView.evaluateJavascript(js, null);
     }
@@ -152,7 +162,7 @@ public class MainActivity extends AppCompatActivity {
                         true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
 
                 runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this, "PDF guardado en Descargas: " + finalName, Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
