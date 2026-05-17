@@ -9,7 +9,6 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Base64;
 import android.webkit.CookieManager;
-import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -20,7 +19,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.io.File;
-import java.io.FileOutputStream;
+nimport java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -56,15 +55,21 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setSupportMultipleWindows(true);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        webView.addJavascriptInterface(new GenioPDFBridge(), "GenioPDF");
-
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                // Intercept PDF data URLs
+                if (url.startsWith("data:application/pdf")) {
+                    savePdfFromDataUrl(url);
+                    return true;
+                }
+
+                // WhatsApp
                 if (url.contains("wa.me") || url.contains("whatsapp.com")) {
                     try {
                         Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -81,12 +86,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                     return true;
                 }
-                return false;
-            }
 
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                swipeRefresh.setRefreshing(false);
+                return false;
             }
         });
 
@@ -95,48 +96,39 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
+    private void savePdfFromDataUrl(String dataUrl) {
+        try {
+            String base64 = dataUrl.substring(dataUrl.indexOf(",") + 1);
+            byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
+
+            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (!downloadsDir.exists()) downloadsDir.mkdirs();
+
+            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+            String finalName = "pedido_genio_" + timestamp + ".pdf";
+
+            File pdfFile = new File(downloadsDir, finalName);
+            FileOutputStream fos = new FileOutputStream(pdfFile);
+            fos.write(pdfBytes);
+            fos.close();
+
+            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
+                    true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
+
+            Toast.makeText(this, "PDF guardado en Descargas: " + finalName, Toast.LENGTH_LONG).show();
+
+        } catch (Exception e) {
+            Toast.makeText(this, "Error al guardar PDF: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     @Override
     public void onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack();
         } else {
             super.onBackPressed();
-        }
-    }
-
-    public class GenioPDFBridge {
-        @JavascriptInterface
-        public void download(String dataUrl, String filename) {
-            try {
-                String base64 = dataUrl.substring(dataUrl.indexOf(",") + 1);
-                byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
-
-                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                if (!downloadsDir.exists()) downloadsDir.mkdirs();
-
-                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-                String finalName = "pedido_genio_" + timestamp + ".pdf";
-
-                File pdfFile = new File(downloadsDir, finalName);
-                FileOutputStream fos = new FileOutputStream(pdfFile);
-                fos.write(pdfBytes);
-                fos.close();
-
-                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
-                        true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
-
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this,
-                            "PDF guardado en Descargas: " + finalName, Toast.LENGTH_LONG).show();
-                });
-
-            } catch (Exception e) {
-                runOnUiThread(() -> {
-                    Toast.makeText(MainActivity.this,
-                            "Error al guardar: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                });
-            }
         }
     }
 }
