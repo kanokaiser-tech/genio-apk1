@@ -31,21 +31,19 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private SwipeRefreshLayout swipeRefresh;
     private static final String SITE_URL = "https://nlmhm6zb57mku.kimi.place/";
-    private static final int PERMISSION_REQUEST_CODE = 100;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                                Manifest.permission.READ_EXTERNAL_STORAGE},
-                        PERMISSION_REQUEST_CODE);
-            }
+        // Request permissions
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                            Manifest.permission.READ_EXTERNAL_STORAGE},
+                    100);
         }
 
         swipeRefresh = findViewById(R.id.swipeRefresh);
@@ -64,17 +62,26 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        webView.addJavascriptInterface(new AndroidBridge(), "Android");
+        // Add JavaScript bridge for PDF
+        webView.addJavascriptInterface(new PDFBridge(), "GenioPDF");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url.contains("wa.me") || url.contains("whatsapp.com") || url.contains("whatsapp://")) {
-                    openWhatsApp(url);
-                    return true;
-                }
-                if (url.startsWith("mailto:") || url.startsWith("tel:")) {
-                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                if (url.contains("wa.me") || url.contains("whatsapp.com")) {
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        intent.setPackage("com.whatsapp");
+                        startActivity(intent);
+                    } catch (Exception e) {
+                        try {
+                            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                            intent.setPackage("com.whatsapp.w4b");
+                            startActivity(intent);
+                        } catch (Exception e2) {
+                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                        }
+                    }
                     return true;
                 }
                 return false;
@@ -83,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 swipeRefresh.setRefreshing(false);
-                injectPDFInterceptor();
+                injectPDFHook();
             }
         });
 
@@ -92,42 +99,25 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
-    private void injectPDFInterceptor() {
+    private void injectPDFHook() {
         String js =
             "(function() {" +
-            "  if (window.jsPDF && !window._pdfPatched) {" +
-            "    window._pdfPatched = true;" +
-            "    var originalSave = window.jsPDF.prototype.save;" +
+            "  if (window.jsPDF && !window._pdfHooked) {" +
+            "    window._pdfHooked = true;" +
+            "    var origSave = window.jsPDF.prototype.save;" +
             "    window.jsPDF.prototype.save = function(filename) {" +
             "      try {" +
-            "        var dataUrl = this.output('dataurlstring');" +
-            "        var base64 = dataUrl.split(',')[1];" +
-            "        if (window.Android && window.Android.savePDF) {" +
-            "          window.Android.savePDF(base64, filename || 'pedido.pdf');" +
+            "        var dataUrl = this.output('datauristring');" +
+            "        if (window.GenioPDF && window.GenioPDF.download) {" +
+            "          window.GenioPDF.download(dataUrl, filename || 'pedido.pdf');" +
             "          return;" +
             "        }" +
             "      } catch(e) {}" +
-            "      return originalSave.apply(this, arguments);" +
+            "      origSave.apply(this, arguments);" +
             "    };" +
             "  }" +
             "})();";
         webView.evaluateJavascript(js, null);
-    }
-
-    private void openWhatsApp(String url) {
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            intent.setPackage("com.whatsapp");
-            startActivity(intent);
-        } catch (Exception e) {
-            try {
-                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                intent.setPackage("com.whatsapp.w4b");
-                startActivity(intent);
-            } catch (Exception e2) {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-            }
-        }
     }
 
     @Override
@@ -139,37 +129,36 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    public class AndroidBridge {
+    public class PDFBridge {
         @JavascriptInterface
-        public void savePDF(String base64Data, String filename) {
-            runOnUiThread(() -> {
-                try {
-                    byte[] pdfBytes = Base64.decode(base64Data, Base64.DEFAULT);
-                    File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                    if (!downloadsDir.exists()) {
-                        downloadsDir.mkdirs();
-                    }
+        public void download(String dataUrl, String filename) {
+            try {
+                String base64Part = dataUrl.substring(dataUrl.indexOf(",") + 1);
+                byte[] pdfBytes = Base64.decode(base64Part, Base64.DEFAULT);
 
-                    String safeName = filename.replaceAll("[^a-zA-Z0-9._-]", "_");
-                    if (!safeName.endsWith(".pdf")) safeName += ".pdf";
-                    String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-                    String finalName = safeName.replace(".pdf", "_" + timestamp + ".pdf");
+                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!downloadsDir.exists()) downloadsDir.mkdirs();
 
-                    File pdfFile = new File(downloadsDir, finalName);
-                    FileOutputStream fos = new FileOutputStream(pdfFile);
-                    fos.write(pdfBytes);
-                    fos.close();
+                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                String finalName = "pedido_genio_" + timestamp + ".pdf";
 
-                    DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                    dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
-                            true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
+                File pdfFile = new File(downloadsDir, finalName);
+                FileOutputStream fos = new FileOutputStream(pdfFile);
+                fos.write(pdfBytes);
+                fos.close();
 
+                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
+                        true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
+
+                runOnUiThread(() -> {
                     Toast.makeText(MainActivity.this, "PDF guardado en Descargas: " + finalName, Toast.LENGTH_LONG).show();
-
-                } catch (Exception e) {
-                    Toast.makeText(MainActivity.this, "Error al guardar PDF: " + e.getMessage(), Toast.LENGTH_LONG).show();
-                }
-            });
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            }
         }
     }
 }
