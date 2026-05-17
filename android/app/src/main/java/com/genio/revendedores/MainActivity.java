@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Base64;
 import android.webkit.CookieManager;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -19,7 +20,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 import java.io.File;
-nimport java.io.FileOutputStream;
+import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -55,7 +56,6 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setSupportMultipleWindows(true);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -63,30 +63,14 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                // Intercept PDF data URLs
-                if (url.startsWith("data:application/pdf")) {
-                    savePdfFromDataUrl(url);
+                if (url.equals("genio://download-pdf")) {
+                    downloadPdfFromPage();
                     return true;
                 }
-
-                // WhatsApp
                 if (url.contains("wa.me") || url.contains("whatsapp.com")) {
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                        intent.setPackage("com.whatsapp");
-                        startActivity(intent);
-                    } catch (Exception e) {
-                        try {
-                            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                            intent.setPackage("com.whatsapp.w4b");
-                            startActivity(intent);
-                        } catch (Exception e2) {
-                            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
-                        }
-                    }
+                    openWhatsApp(url);
                     return true;
                 }
-
                 return false;
             }
         });
@@ -96,9 +80,30 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
-    private void savePdfFromDataUrl(String dataUrl) {
+    private void downloadPdfFromPage() {
+        Toast.makeText(this, "Guardando PDF...", Toast.LENGTH_SHORT).show();
+
+        webView.evaluateJavascript("window._lastPdfBase64 || ''", new ValueCallback<String>() {
+            @Override
+            public void onReceiveValue(String value) {
+                if (value == null || value.isEmpty() || value.equals("null")) {
+                    Toast.makeText(MainActivity.this, "PDF no disponible", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                String dataUrl = value.replace("\"", "");
+                savePdf(dataUrl);
+            }
+        });
+    }
+
+    private void savePdf(String dataUrl) {
         try {
-            String base64 = dataUrl.substring(dataUrl.indexOf(",") + 1);
+            int commaIndex = dataUrl.indexOf(",");
+            if (commaIndex == -1) {
+                Toast.makeText(this, "Formato invalido", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            String base64 = dataUrl.substring(commaIndex + 1);
             byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
 
             File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
@@ -116,10 +121,26 @@ public class MainActivity extends AppCompatActivity {
             dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
                     true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
 
-            Toast.makeText(this, "PDF guardado en Descargas: " + finalName, Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
 
         } catch (Exception e) {
-            Toast.makeText(this, "Error al guardar PDF: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void openWhatsApp(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            intent.setPackage("com.whatsapp");
+            startActivity(intent);
+        } catch (Exception e) {
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                intent.setPackage("com.whatsapp.w4b");
+                startActivity(intent);
+            } catch (Exception e2) {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+            }
         }
     }
 
