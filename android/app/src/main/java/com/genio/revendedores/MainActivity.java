@@ -61,8 +61,10 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
+        // Bridge para descargar PDF desde JavaScript
         webView.addJavascriptInterface(new PDFBridge(), "Android");
 
+        // WhatsApp
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -88,6 +90,7 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
+    // Bridge: JavaScript llama Android.downloadPDF(dataUrl)
     public class PDFBridge {
         @JavascriptInterface
         public void downloadPDF(String dataUrl) {
