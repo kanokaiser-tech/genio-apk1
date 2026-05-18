@@ -61,10 +61,8 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        // Bridge: JavaScript llama a Android.downloadPDF(base64DataUrl)
-        webView.addJavascriptInterface(new Bridge(), "Android");
+        webView.addJavascriptInterface(new PDFBridge(), "Android");
 
-        // WhatsApp
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -90,33 +88,40 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
-    public class Bridge {
+    public class PDFBridge {
         @JavascriptInterface
         public void downloadPDF(String dataUrl) {
-            try {
-                String base64 = dataUrl.substring(dataUrl.indexOf(",") + 1);
-                byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
+            runOnUiThread(() -> {
+                try {
+                    int commaIndex = dataUrl.indexOf(",");
+                    if (commaIndex == -1) {
+                        Toast.makeText(MainActivity.this, "Formato invalido", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String base64 = dataUrl.substring(commaIndex + 1);
+                    byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
 
-                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-                if (!downloadsDir.exists()) downloadsDir.mkdirs();
+                    File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!downloadsDir.exists()) downloadsDir.mkdirs();
 
-                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-                String finalName = "pedido_genio_" + timestamp + ".pdf";
+                    String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                    String finalName = "pedido_genio_" + timestamp + ".pdf";
 
-                File pdfFile = new File(downloadsDir, finalName);
-                FileOutputStream fos = new FileOutputStream(pdfFile);
-                fos.write(pdfBytes);
-                fos.close();
+                    File pdfFile = new File(downloadsDir, finalName);
+                    FileOutputStream fos = new FileOutputStream(pdfFile);
+                    fos.write(pdfBytes);
+                    fos.close();
 
-                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-                dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
-                        true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
+                    DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
+                            true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
 
-                Toast.makeText(MainActivity.this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
+                    Toast.makeText(MainActivity.this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
 
-            } catch (Exception e) {
-                Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            }
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
         }
     }
 
