@@ -9,7 +9,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Base64;
 import android.webkit.CookieManager;
-import android.webkit.ValueCallback;
+import android.webkit.JsPromptResult;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -20,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
@@ -61,31 +62,19 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        // Interceptar URLs - AMBAS versiones para compatibilidad
+        // WhatsApp
         webView.setWebViewClient(new WebViewClient() {
-            // Version NUEVA (Android 7+)
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String url = request.getUrl().toString();
-
-                if (url.equals("genio://download-pdf")) {
-                    downloadPdfFromPage();
-                    return true;
-                }
                 if (url.contains("wa.me") || url.contains("whatsapp.com")) {
                     openWhatsApp(url);
                     return true;
                 }
                 return false;
             }
-
-            // Version VIEJA (Android viejo)
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                if (url.equals("genio://download-pdf")) {
-                    downloadPdfFromPage();
-                    return true;
-                }
                 if (url.contains("wa.me") || url.contains("whatsapp.com")) {
                     openWhatsApp(url);
                     return true;
@@ -94,28 +83,31 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        webView.setWebChromeClient(new WebChromeClient());
+        // PDF via window.prompt
+        webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
+                if ("genio-bridge".equals(message)) {
+                    result.confirm("ok");
+                    try {
+                        JSONObject json = new JSONObject(defaultValue);
+                        if ("downloadPDF".equals(json.getString("action"))) {
+                            savePdf(json.getString("dataUrl"), json.getString("filename"));
+                        }
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                    return true;
+                }
+                return super.onJsPrompt(view, url, message, defaultValue, result);
+            }
+        });
+
         swipeRefresh.setOnRefreshListener(() -> webView.reload());
         webView.loadUrl(SITE_URL);
     }
 
-    private void downloadPdfFromPage() {
-        Toast.makeText(this, "Guardando PDF...", Toast.LENGTH_SHORT).show();
-
-        webView.evaluateJavascript("window._lastPdfBase64 || ''", new ValueCallback<String>() {
-            @Override
-            public void onReceiveValue(String value) {
-                if (value == null || value.isEmpty() || value.equals("null")) {
-                    Toast.makeText(MainActivity.this, "PDF no disponible", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                String dataUrl = value.replace("\"", "");
-                savePdf(dataUrl);
-            }
-        });
-    }
-
-    private void savePdf(String dataUrl) {
+    private void savePdf(String dataUrl, String filename) {
         try {
             int commaIndex = dataUrl.indexOf(",");
             if (commaIndex == -1) {
