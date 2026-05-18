@@ -10,6 +10,7 @@ import android.os.Environment;
 import android.util.Base64;
 import android.webkit.CookieManager;
 import android.webkit.JsPromptResult;
+import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -20,7 +21,6 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
-import org.json.JSONObject;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.text.SimpleDateFormat;
@@ -83,20 +83,27 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // PDF via window.prompt
+        // PDF via window.prompt trigger
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
-                if ("genio-bridge".equals(message)) {
+                if ("GENIO_DOWNLOAD_PDF".equals(message)) {
                     result.confirm("ok");
-                    try {
-                        JSONObject json = new JSONObject(defaultValue);
-                        if ("downloadPDF".equals(json.getString("action"))) {
-                            savePdf(json.getString("dataUrl"), json.getString("filename"));
+                    Toast.makeText(MainActivity.this, "Guardando PDF...", Toast.LENGTH_SHORT).show();
+                    webView.evaluateJavascript("window._lastPdfDataUrl || ''", new ValueCallback<String>() {
+                        @Override
+                        public void onReceiveValue(String value) {
+                            if (value == null || value.isEmpty() || value.equals("null")) {
+                                Toast.makeText(MainActivity.this, "PDF no disponible", Toast.LENGTH_SHORT).show();
+                                return;
+                            }
+                            String dataUrl = value;
+                            if (dataUrl.startsWith("\"") && dataUrl.endsWith("\"")) {
+                                dataUrl = dataUrl.substring(1, dataUrl.length() - 1);
+                            }
+                            savePdf(dataUrl);
                         }
-                    } catch (Exception e) {
-                        Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-                    }
+                    });
                     return true;
                 }
                 return super.onJsPrompt(view, url, message, defaultValue, result);
@@ -107,7 +114,7 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl(SITE_URL);
     }
 
-    private void savePdf(String dataUrl, String filename) {
+    private void savePdf(String dataUrl) {
         try {
             int commaIndex = dataUrl.indexOf(",");
             if (commaIndex == -1) {
