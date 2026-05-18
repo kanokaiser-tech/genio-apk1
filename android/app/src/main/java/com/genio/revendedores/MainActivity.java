@@ -9,8 +9,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.util.Base64;
 import android.webkit.CookieManager;
-import android.webkit.JsPromptResult;
-import android.webkit.ValueCallback;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -62,6 +61,9 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
+        // Bridge: JavaScript llama a Android.downloadPDF(base64DataUrl)
+        webView.addJavascriptInterface(new Bridge(), "Android");
+
         // WhatsApp
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -83,66 +85,38 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // PDF via window.prompt trigger
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public boolean onJsPrompt(WebView view, String url, String message, String defaultValue, JsPromptResult result) {
-                if ("GENIO_DOWNLOAD_PDF".equals(message)) {
-                    result.confirm("ok");
-                    Toast.makeText(MainActivity.this, "Guardando PDF...", Toast.LENGTH_SHORT).show();
-                    webView.evaluateJavascript("window._lastPdfDataUrl || ''", new ValueCallback<String>() {
-                        @Override
-                        public void onReceiveValue(String value) {
-                            if (value == null || value.isEmpty() || value.equals("null")) {
-                                Toast.makeText(MainActivity.this, "PDF no disponible", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-                            String dataUrl = value;
-                            if (dataUrl.startsWith("\"") && dataUrl.endsWith("\"")) {
-                                dataUrl = dataUrl.substring(1, dataUrl.length() - 1);
-                            }
-                            savePdf(dataUrl);
-                        }
-                    });
-                    return true;
-                }
-                return super.onJsPrompt(view, url, message, defaultValue, result);
-            }
-        });
-
+        webView.setWebChromeClient(new WebChromeClient());
         swipeRefresh.setOnRefreshListener(() -> webView.reload());
         webView.loadUrl(SITE_URL);
     }
 
-    private void savePdf(String dataUrl) {
-        try {
-            int commaIndex = dataUrl.indexOf(",");
-            if (commaIndex == -1) {
-                Toast.makeText(this, "Formato invalido", Toast.LENGTH_SHORT).show();
-                return;
+    public class Bridge {
+        @JavascriptInterface
+        public void downloadPDF(String dataUrl) {
+            try {
+                String base64 = dataUrl.substring(dataUrl.indexOf(",") + 1);
+                byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
+
+                File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!downloadsDir.exists()) downloadsDir.mkdirs();
+
+                String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+                String finalName = "pedido_genio_" + timestamp + ".pdf";
+
+                File pdfFile = new File(downloadsDir, finalName);
+                FileOutputStream fos = new FileOutputStream(pdfFile);
+                fos.write(pdfBytes);
+                fos.close();
+
+                DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
+                        true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
+
+                Toast.makeText(MainActivity.this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
+
+            } catch (Exception e) {
+                Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
-            String base64 = dataUrl.substring(commaIndex + 1);
-            byte[] pdfBytes = Base64.decode(base64, Base64.DEFAULT);
-
-            File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (!downloadsDir.exists()) downloadsDir.mkdirs();
-
-            String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
-            String finalName = "pedido_genio_" + timestamp + ".pdf";
-
-            File pdfFile = new File(downloadsDir, finalName);
-            FileOutputStream fos = new FileOutputStream(pdfFile);
-            fos.write(pdfBytes);
-            fos.close();
-
-            DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            dm.addCompletedDownload(finalName, "Pedido Genio de la Lampara",
-                    true, "application/pdf", pdfFile.getAbsolutePath(), pdfBytes.length, true);
-
-            Toast.makeText(this, "PDF guardado: " + finalName, Toast.LENGTH_LONG).show();
-
-        } catch (Exception e) {
-            Toast.makeText(this, "Error: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
